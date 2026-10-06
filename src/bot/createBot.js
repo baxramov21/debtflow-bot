@@ -2,6 +2,8 @@ import { Bot, session } from 'grammy';
 import { supabaseStorage } from './session';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { t } from './i18n';
+import { setupStartController } from './controllers/start';
+import { setupRegistrationController } from './controllers/registration';
 
 /**
  * Creates and configures a grammY Bot instance for a specific clinic
@@ -47,13 +49,9 @@ export async function createBot(token, botClinicId, clinicData) {
     await next();
   });
 
-  // Basic commands
-  bot.command('start', async (ctx) => {
-    // If user is new, show language selection or registration
-    await ctx.reply(ctx.t('start.welcome', { clinicName: ctx.clinic.name || 'DentFlow' }));
-  });
-
   // We will attach controllers in Phase 2
+  setupStartController(bot);
+  setupRegistrationController(bot);
 
   return bot;
 }
