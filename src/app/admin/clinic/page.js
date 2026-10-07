@@ -1,4 +1,4 @@
-import { createClient } from '../../lib/supabaseServer'
+import { createClient } from '../../../lib/supabaseServer'
 import { redirect } from 'next/navigation'
 import ClinicDashboardClient from './ClinicDashboardClient'
 
