@@ -4,6 +4,13 @@ import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { t } from './i18n';
 import { setupStartController } from './controllers/start';
 import { setupRegistrationController } from './controllers/registration';
+import { setupBookingController } from './controllers/booking';
+import { setupAppointmentsController } from './controllers/appointments';
+import { setupSettingsController } from './controllers/settings';
+import { setupReminderActionsController } from './controllers/reminderActions';
+import { setupFeedbackController } from './controllers/feedback';
+import { setupBalanceController } from './controllers/balance';
+import { setupChartController } from './controllers/chart';
 
 /**
  * Creates and configures a grammY Bot instance for a specific clinic
@@ -49,9 +56,16 @@ export async function createBot(token, botClinicId, clinicData) {
     await next();
   });
 
-  // We will attach controllers in Phase 2
+  // Controllers
   setupStartController(bot);
   setupRegistrationController(bot);
+  setupBookingController(bot);
+  setupAppointmentsController(bot);
+  setupSettingsController(bot);
+  setupReminderActionsController(bot);
+  setupFeedbackController(bot);
+  setupBalanceController(bot);
+  setupChartController(bot);
 
   return bot;
 }
