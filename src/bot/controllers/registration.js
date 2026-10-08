@@ -76,7 +76,7 @@ export function setupRegistrationController(bot) {
           .from('patients')
           .insert({
             clinic_id: ctx.clinic.id,
-            first_name: ctx.from.first_name,
+            full_name: [ctx.from.first_name, ctx.from.last_name].filter(Boolean).join(' ') || 'Telegram User',
             phone: `+998${last9}`
           })
           .select()

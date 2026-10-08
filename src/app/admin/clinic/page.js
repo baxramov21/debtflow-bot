@@ -74,7 +74,7 @@ export default async function ClinicPage() {
     
     const { data: lowFeedbackData } = await supabaseAdmin
       .from('bot_feedback')
-      .select('rating, comment, created_at, patients(first_name, last_name), appointments!inner(clinic_id)')
+      .select('rating, comment, created_at, patients(full_name), appointments!inner(clinic_id)')
       .eq('appointments.clinic_id', staff.clinic_id)
       .lte('rating', 2)
       .order('created_at', { ascending: false })

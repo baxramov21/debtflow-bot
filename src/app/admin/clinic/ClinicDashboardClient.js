@@ -136,7 +136,7 @@ export default function ClinicDashboardClient({ initialBotClinic, stats }) {
               <ul style={{ listStyle: 'none', padding: 0 }}>
                 {stats.recentLowRatings.map((r, i) => (
                   <li key={i} style={{ background: 'rgba(248, 81, 73, 0.1)', padding: '1rem', borderRadius: '8px', marginBottom: '0.5rem' }}>
-                    <div><strong>{r.patients?.first_name} {r.patients?.last_name}</strong> - {r.rating} ⭐</div>
+                    <div><strong>{r.patients?.full_name || 'Unknown Patient'}</strong> - {r.rating} ⭐</div>
                     {r.comment && <div style={{ marginTop: '0.5rem', fontStyle: 'italic' }}>&quot;{r.comment}&quot;</div>}
                     <div style={{ marginTop: '0.5rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{new Date(r.created_at).toLocaleString()}</div>
                   </li>
