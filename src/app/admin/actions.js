@@ -1,6 +1,7 @@
 'use server'
 
 import { createClient } from '../../lib/supabaseServer'
+import { supabaseAdmin } from '../../lib/supabaseAdmin'
 import { redirect } from 'next/navigation'
 import { tgGetMe, tgSetWebhook, tgDeleteWebhook, tgSetMyCommands } from '../../lib/telegramAdmin'
 import { encryptToken, decryptToken } from '../../lib/crypto'
@@ -34,8 +35,8 @@ export async function connectBot(formData) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Unauthorized' }
 
-  // Check if admin is a staff member
-  const { data: staffList } = await supabase
+  // Check if admin is a staff member (Bypassing RLS with Admin)
+  const { data: staffList } = await supabaseAdmin
     .from('staff')
     .select('clinic_id, role')
     .eq('user_id', user.id)
@@ -52,7 +53,7 @@ export async function connectBot(formData) {
   if (!token) return { error: 'Token required' }
 
   // Check if token equals DentFlow bot token
-  const { data: clinic } = await supabase
+  const { data: clinic } = await supabaseAdmin
     .from('clinics')
     .select('telegram_bot_token')
     .eq('id', staff.clinic_id)
@@ -73,7 +74,7 @@ export async function connectBot(formData) {
   const botTokenEnc = encryptToken(token)
 
   // Upsert into bot_clinics
-  const { data: botClinic, error: upsertErr } = await supabase
+  const { data: botClinic, error: upsertErr } = await supabaseAdmin
     .from('bot_clinics')
     .upsert({
       clinic_id: staff.clinic_id,
@@ -109,7 +110,7 @@ export async function disconnectBot(botId) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Unauthorized' }
 
-  const { data: botClinic } = await supabase
+  const { data: botClinic } = await supabaseAdmin
     .from('bot_clinics')
     .select('bot_token_enc')
     .eq('id', botId)
@@ -122,7 +123,7 @@ export async function disconnectBot(botId) {
     } catch(e) {}
   }
 
-  await supabase.from('bot_clinics').delete().eq('id', botId)
+  await supabaseAdmin.from('bot_clinics').delete().eq('id', botId)
   
   return { success: true }
 }
@@ -142,7 +143,7 @@ export async function saveSettings(botId, formData) {
     show_dental_chart: formData.get('show_dental_chart') === 'on'
   }
 
-  const { error } = await supabase
+  const { error } = await supabaseAdmin
     .from('bot_clinics')
     .update(updates)
     .eq('id', botId)

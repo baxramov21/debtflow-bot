@@ -1,4 +1,5 @@
 import { createClient } from '../../../lib/supabaseServer'
+import { supabaseAdmin } from '../../../lib/supabaseAdmin'
 import { redirect } from 'next/navigation'
 import ClinicDashboardClient from './ClinicDashboardClient'
 
@@ -10,7 +11,7 @@ export default async function ClinicPage() {
     redirect('/admin/login')
   }
 
-  const { data: staffList } = await supabase
+  const { data: staffList } = await supabaseAdmin
     .from('staff')
     .select('clinic_id, role, clinics(name)')
     .eq('user_id', user.id)
@@ -30,7 +31,7 @@ export default async function ClinicPage() {
     )
   }
 
-  const { data: botClinic } = await supabase
+  const { data: botClinic } = await supabaseAdmin
     .from('bot_clinics')
     .select('*')
     .eq('clinic_id', staff.clinic_id)
@@ -38,7 +39,7 @@ export default async function ClinicPage() {
 
   let stats = null;
   if (botClinic) {
-    const { count: linkedPatients } = await supabase
+    const { count: linkedPatients } = await supabaseAdmin
       .from('bot_patient_links')
       .select('*', { count: 'exact', head: true })
       .eq('clinic_id', staff.clinic_id);
@@ -46,21 +47,21 @@ export default async function ClinicPage() {
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
       
-    const { count: botBookings7d } = await supabase
+    const { count: botBookings7d } = await supabaseAdmin
       .from('appointments')
       .select('*', { count: 'exact', head: true })
       .eq('clinic_id', staff.clinic_id)
       .gte('created_at', sevenDaysAgo.toISOString())
       .like('notes', '[Telegram]%');
 
-    const { count: botCancellations } = await supabase
+    const { count: botCancellations } = await supabaseAdmin
       .from('appointments')
       .select('*', { count: 'exact', head: true })
       .eq('clinic_id', staff.clinic_id)
       .eq('status', 'cancelled')
       .like('notes', '[Telegram]%');
 
-    const { data: feedbacks } = await supabase
+    const { data: feedbacks } = await supabaseAdmin
       .from('bot_feedback')
       .select('rating, appointments!inner(clinic_id)')
       .eq('appointments.clinic_id', staff.clinic_id);
@@ -71,7 +72,7 @@ export default async function ClinicPage() {
       avgRating = (sum / feedbacks.length).toFixed(1);
     }
     
-    const { data: lowFeedbackData } = await supabase
+    const { data: lowFeedbackData } = await supabaseAdmin
       .from('bot_feedback')
       .select('rating, comment, created_at, patients(first_name, last_name), appointments!inner(clinic_id)')
       .eq('appointments.clinic_id', staff.clinic_id)
