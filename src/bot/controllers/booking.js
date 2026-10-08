@@ -12,7 +12,7 @@ export function setupBookingController(bot) {
     const { data: dentists, error } = await supabaseAdmin
       .from('staff')
       .select('id, full_name, user_id')
-      .eq('clinic_id', ctx.botClinicId)
+      .eq('clinic_id', ctx.clinic.id)
       .eq('is_active', true);
 
     if (error || !dentists || dentists.length === 0) {
@@ -77,14 +77,14 @@ async function fetchBookingData(ctx) {
   const { data: dentists } = await supabaseAdmin
     .from('staff')
     .select('id, full_name')
-    .eq('clinic_id', ctx.botClinicId)
+    .eq('clinic_id', ctx.clinic.id)
     .eq('is_active', true);
 
   const now = new Date();
   const { data: appointments } = await supabaseAdmin
     .from('appointments')
     .select('id, start_time, end_time, dentist_id')
-    .eq('clinic_id', ctx.botClinicId)
+    .eq('clinic_id', ctx.clinic.id)
     .neq('status', 'cancelled')
     .neq('status', 'no_show')
     .gte('start_time', now.toISOString());
@@ -231,7 +231,7 @@ async function handleBookingConfirm(ctx) {
 
   try {
     const { data, error } = await supabaseAdmin.rpc('bot_book_appointment', {
-      p_clinic_id: ctx.botClinicId,
+      p_clinic_id: ctx.clinic.id,
       p_patient_id: patientId,
       p_dentist_id: b.assignedDocId,
       p_start_time: b.slotStart,

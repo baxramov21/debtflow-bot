@@ -39,7 +39,7 @@ export function setupBalanceController(bot) {
         .select('price_override, status, appointments!inner(patient_id, clinic_id)')
         .eq('status', 'completed')
         .eq('appointments.patient_id', pId)
-        .eq('appointments.clinic_id', ctx.botClinicId);
+        .eq('appointments.clinic_id', ctx.clinic.id);
         
       let totalCost = 0;
       if (treatments) {
@@ -53,7 +53,7 @@ export function setupBalanceController(bot) {
         .from('payments')
         .select('amount')
         .eq('patient_id', pId)
-        .eq('clinic_id', ctx.botClinicId);
+        .eq('clinic_id', ctx.clinic.id);
         
       let totalPaid = 0;
       if (payments) {

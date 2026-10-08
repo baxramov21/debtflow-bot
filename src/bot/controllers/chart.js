@@ -48,7 +48,7 @@ export function setupChartController(bot) {
         .from('tooth_status')
         .select('tooth_number, status')
         .eq('patient_id', pId)
-        .eq('clinic_id', ctx.botClinicId)
+        .eq('clinic_id', ctx.clinic.id)
         .neq('status', 'healthy')
         .order('tooth_number', { ascending: true });
         

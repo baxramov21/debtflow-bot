@@ -27,7 +27,7 @@ export function setupAppointmentsController(bot) {
         id, start_time, status, dentist_id,
         staff:dentist_id (full_name)
       `)
-      .eq('clinic_id', ctx.botClinicId)
+      .eq('clinic_id', ctx.clinic.id)
       .in('patient_id', patientIds)
       .in('status', ['scheduled', 'confirmed'])
       .gte('start_time', now.toISOString())
