@@ -18,7 +18,7 @@ export async function POST(req, { params }) {
         .from('bot_clinics')
         .select(`
           *,
-          clinics:clinic_id (id, name, subdomain)
+          clinics:clinic_id (id, name)
         `)
         .eq('id', botId)
         .single();
