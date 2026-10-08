@@ -25,7 +25,7 @@ export function setupAppointmentsController(bot) {
       .from('appointments')
       .select(`
         id, start_time, status, dentist_id,
-        staff:dentist_id (first_name, last_name)
+        staff:dentist_id (full_name)
       `)
       .eq('clinic_id', ctx.botClinicId)
       .in('patient_id', patientIds)
@@ -52,7 +52,7 @@ export function setupAppointmentsController(bot) {
     for (const app of appointments) {
       const date = formatInTimeZone(app.start_time, tz, 'yyyy-MM-dd');
       const time = formatInTimeZone(app.start_time, tz, 'HH:mm');
-      const docName = app.staff ? `${app.staff.first_name} ${app.staff.last_name || ''}` : '';
+      const docName = app.staff ? app.staff.full_name : '';
       
       const text = ctx.t('appointments.item', {
         date, time, doctor: docName, status: app.status

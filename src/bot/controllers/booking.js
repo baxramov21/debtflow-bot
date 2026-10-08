@@ -11,7 +11,7 @@ export function setupBookingController(bot) {
     // Fetch dentists
     const { data: dentists, error } = await supabaseAdmin
       .from('staff')
-      .select('id, first_name, last_name, user_id')
+      .select('id, full_name, user_id')
       .eq('clinic_id', ctx.botClinicId)
       .eq('is_active', true);
 
@@ -24,7 +24,7 @@ export function setupBookingController(bot) {
     kb.text(ctx.t('booking.any_doctor'), `book_doc_any`).row();
     
     dentists.forEach(d => {
-      kb.text(`👨‍⚕️ ${d.first_name} ${d.last_name || ''}`, `book_doc_${d.id}`).row();
+      kb.text(`👨‍⚕️ ${d.full_name}`, `book_doc_${d.id}`).row();
     });
 
     await ctx.reply(ctx.t('booking.select_doctor'), { reply_markup: kb });
@@ -76,7 +76,7 @@ export function setupBookingController(bot) {
 async function fetchBookingData(ctx) {
   const { data: dentists } = await supabaseAdmin
     .from('staff')
-    .select('id, first_name, last_name')
+    .select('id, full_name')
     .eq('clinic_id', ctx.botClinicId)
     .eq('is_active', true);
 
@@ -190,11 +190,11 @@ async function showConfirmMenu(ctx) {
 
   const { data: dentist } = await supabaseAdmin
     .from('staff')
-    .select('first_name, last_name')
+    .select('full_name')
     .eq('id', ctx.session.booking.assignedDocId)
     .single();
 
-  const docName = dentist ? `${dentist.first_name} ${dentist.last_name || ''}` : '';
+  const docName = dentist ? dentist.full_name : '';
 
   const kb = new InlineKeyboard()
     .text(ctx.t('booking.btn_confirm'), 'book_confirm').row()
