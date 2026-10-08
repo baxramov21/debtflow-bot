@@ -35,13 +35,16 @@ export async function connectBot(formData) {
   if (!user) return { error: 'Unauthorized' }
 
   // Check if admin is a staff member
-  const { data: staff } = await supabase
+  const { data: staffList } = await supabase
     .from('staff')
     .select('clinic_id, role')
     .eq('user_id', user.id)
-    .single()
+    .eq('role', 'admin')
+    .limit(1)
 
-  if (!staff || staff.role !== 'admin') {
+  const staff = staffList?.[0]
+
+  if (!staff) {
     return { error: 'Must be clinic admin' }
   }
 

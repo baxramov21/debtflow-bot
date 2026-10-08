@@ -10,13 +10,16 @@ export default async function ClinicPage() {
     redirect('/admin/login')
   }
 
-  const { data: staff } = await supabase
+  const { data: staffList } = await supabase
     .from('staff')
     .select('clinic_id, role, clinics(name)')
     .eq('user_id', user.id)
-    .single()
+    .eq('role', 'admin')
+    .limit(1)
 
-  if (!staff || staff.role !== 'admin') {
+  const staff = staffList?.[0]
+
+  if (!staff) {
     return (
       <div className="container mt-10">
         <div className="glass-panel text-center">
