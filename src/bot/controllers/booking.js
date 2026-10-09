@@ -8,37 +8,59 @@ export function setupBookingController(bot) {
   bot.hears(['📅 Qabulga yozilish', '📅 Записаться на прием'], async (ctx) => {
     if (!ctx.dbUser) return;
     
-    // Fetch dentists
-    const { data: dentists, error } = await supabaseAdmin
-      .from('staff')
-      .select('id, full_name, user_id')
+    // Fetch services
+    const { data: services, error } = await supabaseAdmin
+      .from('services')
+      .select('id, name_uz, name_ru, name, price, duration_minutes')
       .eq('clinic_id', ctx.clinic.id)
       .eq('is_active', true);
 
-    if (error || !dentists || dentists.length === 0) {
-      await ctx.reply(ctx.t('booking.error'));
+    if (error || !services || services.length === 0) {
+      // Fallback: Skip services
+      ctx.session.booking = { serviceId: 'none', serviceDuration: null, serviceName: '' };
+      await showDatesMenu(ctx);
       return;
     }
 
-    const kb = new InlineKeyboard();
-    kb.text(ctx.t('booking.any_doctor'), `book_doc_any`).row();
+    ctx.session.booking = { step: 'service' };
     
-    dentists.forEach(d => {
-      kb.text(`👨‍⚕️ ${d.full_name}`, `book_doc_${d.id}`).row();
+    const kb = new InlineKeyboard();
+    services.forEach(s => {
+      const name = ctx.session.language === 'ru' ? (s.name_ru || s.name) : (s.name_uz || s.name);
+      kb.text(`🦷 ${name} (${s.price} UZS)`, `book_srv_${s.id}`).row();
     });
 
-    await ctx.reply(ctx.t('booking.select_doctor'), { reply_markup: kb });
+    kb.row().text(ctx.t('booking.btn_cancel'), 'book_cancel');
+    await ctx.reply(ctx.t('booking.select_service'), { reply_markup: kb });
   });
 
-  // 2. Select Doctor
-  bot.callbackQuery(/^book_doc_(.+)$/, async (ctx) => {
+  // 1.5 Select Service
+  bot.callbackQuery(/^book_srv_(.+)$/, async (ctx) => {
     await ctx.answerCallbackQuery().catch(() => {});
-    const docId = ctx.match[1];
-    ctx.session.booking = { docId };
-    await showDatesMenu(ctx);
+    const serviceId = ctx.match[1];
+    
+    const { data: service } = await supabaseAdmin
+      .from('services')
+      .select('name_uz, name_ru, name, duration_minutes')
+      .eq('id', serviceId)
+      .single();
+      
+    if (!service) {
+      await ctx.editMessageText(ctx.t('booking.error'));
+      return;
+    }
+    
+    const name = ctx.session.language === 'ru' ? (service.name_ru || service.name) : (service.name_uz || service.name);
+    
+    ctx.session.booking = { 
+      serviceId, 
+      serviceDuration: service.duration_minutes,
+      serviceName: name
+    };
+    await showDatesMenu(ctx, true);
   });
 
-  // 3. Select Date
+  // 2. Select Date
   bot.callbackQuery(/^book_date_(.+)$/, async (ctx) => {
     await ctx.answerCallbackQuery().catch(() => {});
     const dateStr = ctx.match[1];
@@ -59,11 +81,19 @@ export function setupBookingController(bot) {
     await ctx.answerCallbackQuery().catch(() => {});
   });
 
-  // 4. Select Time
+  // 3. Select Time
   bot.callbackQuery(/^book_time_(.+)$/, async (ctx) => {
     await ctx.answerCallbackQuery().catch(() => {});
     const timeStr = ctx.match[1]; // HH:mm
     ctx.session.booking.timeStr = timeStr;
+    await showDoctorsMenu(ctx);
+  });
+
+  // 4. Select Doctor
+  bot.callbackQuery(/^book_doc_(.+)$/, async (ctx) => {
+    await ctx.answerCallbackQuery().catch(() => {});
+    const docId = ctx.match[1];
+    ctx.session.booking.docId = docId;
     await showConfirmMenu(ctx);
   });
 
@@ -110,14 +140,14 @@ async function fetchBookingData(ctx) {
       clinic: ctx.clinic,
       dentists: dentists || [],
       appointments: appointments || [],
-      now
+      now,
+      serviceDuration: ctx.session.booking?.serviceDuration
     })
   };
 }
 
 async function showDatesMenu(ctx, isEdit = false) {
   const { slotsMap } = await fetchBookingData(ctx);
-  const docId = ctx.session.booking.docId;
   ctx.session.booking.slotsMap = slotsMap; // Save temporarily in session
 
   const dates = Object.keys(slotsMap).sort();
@@ -126,11 +156,10 @@ async function showDatesMenu(ctx, isEdit = false) {
   let hasSlots = false;
 
   for (const date of dates) {
-    const daySlots = slotsMap[date].filter(s => docId === 'any' || s.availableDentists.includes(docId));
-    if (daySlots.length > 0) {
+    // any slot on this date means the date is available
+    if (slotsMap[date] && slotsMap[date].length > 0) {
       hasSlots = true;
       kb.text(date, `book_date_${date}`);
-      // Simple grid of 2 columns
       if (kb.inline_keyboard[kb.inline_keyboard.length - 1].length >= 2) {
         kb.row();
       }
@@ -162,12 +191,11 @@ async function showDatesMenu(ctx, isEdit = false) {
 
 async function showTimesMenu(ctx) {
   const dateStr = ctx.session.booking.dateStr;
-  const docId = ctx.session.booking.docId;
   const slotsMap = ctx.session.booking.slotsMap;
   const page = ctx.session.booking.timePage || 0;
   const PAGE_SIZE = 12;
 
-  const daySlots = (slotsMap[dateStr] || []).filter(s => docId === 'any' || s.availableDentists.includes(docId));
+  const daySlots = slotsMap[dateStr] || [];
   const totalPages = Math.ceil(daySlots.length / PAGE_SIZE);
   const paginatedSlots = daySlots.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
@@ -200,6 +228,34 @@ async function showTimesMenu(ctx) {
 
   const text = ctx.t('booking.select_time', { date: dateStr });
   await ctx.editMessageText(text, { reply_markup: kb });
+}
+
+async function showDoctorsMenu(ctx) {
+  const { dateStr, timeStr, slotsMap } = ctx.session.booking;
+  const slot = slotsMap[dateStr].find(s => s.time === timeStr);
+  
+  if (!slot || !slot.availableDentists || slot.availableDentists.length === 0) {
+    await ctx.editMessageText(ctx.t('booking.error'));
+    return;
+  }
+  
+  const { data: dentists } = await supabaseAdmin
+    .from('staff')
+    .select('id, full_name')
+    .in('id', slot.availableDentists);
+    
+  const kb = new InlineKeyboard();
+  kb.text(ctx.t('booking.any_doctor'), `book_doc_any`).row();
+  
+  (dentists || []).forEach(d => {
+    kb.text(`👨‍⚕️ ${d.full_name}`, `book_doc_${d.id}`).row();
+  });
+  
+  kb.row()
+    .text(ctx.t('booking.back'), 'book_back_to_dates') // Optional: add book_back_to_times later
+    .text(ctx.t('booking.btn_cancel'), 'book_cancel');
+    
+  await ctx.editMessageText(ctx.t('booking.select_doctor'), { reply_markup: kb });
 }
 
 async function showConfirmMenu(ctx) {
@@ -263,13 +319,18 @@ async function handleBookingConfirm(ctx) {
   const patientId = links[0].patient_id;
 
   try {
+    let notes = '[Telegram] Bemor telegram bot orqali yozildi';
+    if (b.serviceName) {
+      notes += `\nXizmat: ${b.serviceName}`;
+    }
+
     const { data, error } = await supabaseAdmin.rpc('bot_book_appointment', {
       p_clinic_id: ctx.clinic.id,
       p_patient_id: patientId,
       p_dentist_id: b.assignedDocId,
       p_start_time: b.slotStart,
       p_end_time: b.slotEnd,
-      p_notes: '[Telegram] Bemor telegram bot orqali yozildi'
+      p_notes: notes
     });
 
     if (error) throw error;

@@ -7,12 +7,13 @@ export function generateSlots({
   clinic,
   dentists, // Array of dentists [{ id, ... }]
   appointments, // Array of existing appointments [{ id, start_time, end_time, dentist_id }]
-  now = new Date()
+  now = new Date(),
+  serviceDuration = null
 }) {
   const tz = clinic.timezone || 'Asia/Tashkent';
   const horizonDays = clinic.booking_horizon_days || 14;
   const leadMin = clinic.min_lead_minutes || 60;
-  const slotMin = clinic.slot_minutes || 30;
+  const slotMin = serviceDuration || clinic.slot_minutes || 30;
   const workingHours = clinic.working_hours || {};
 
   const availableSlotsByDate = {};

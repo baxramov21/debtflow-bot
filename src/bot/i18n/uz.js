@@ -17,6 +17,7 @@ const uz = {
     error: "Ro'yxatdan o'tishda xatolik yuz berdi."
   },
   booking: {
+    select_service: "Xizmatni tanlang:",
     select_doctor: "Klinikamiz shifokorlaridan birini tanlang:",
     any_doctor: "👨‍⚕️ Ixtiyoriy shifokor",
     select_date: "Qabul kunini tanlang:",
