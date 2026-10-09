@@ -42,8 +42,18 @@ export function generateSlots({
       const slotStart = currentSlot;
       const slotEnd = addMinutes(currentSlot, slotMin);
 
-      // Check lead time
-      if (isAfter(slotStart, cutoffTime)) {
+      // Check lunch break
+      let isLunch = false;
+      if (workingHours.break_start_time && workingHours.break_end_time) {
+        const breakStart = toDate(`${dateStr}T${workingHours.break_start_time}:00`, { timeZone: tz });
+        const breakEnd = toDate(`${dateStr}T${workingHours.break_end_time}:00`, { timeZone: tz });
+        if (slotStart < breakEnd && breakStart < slotEnd) {
+          isLunch = true;
+        }
+      }
+
+      // Check lead time and lunch break
+      if (isAfter(slotStart, cutoffTime) && !isLunch) {
         // Find which dentists are available
         const availableDentists = dentists.filter((dentist) => {
           // A dentist is available if no appointment overlaps

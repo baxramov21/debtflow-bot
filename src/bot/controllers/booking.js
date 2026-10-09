@@ -43,7 +43,20 @@ export function setupBookingController(bot) {
     await ctx.answerCallbackQuery().catch(() => {});
     const dateStr = ctx.match[1];
     ctx.session.booking.dateStr = dateStr;
+    ctx.session.booking.timePage = 0; // Reset page on new date
     await showTimesMenu(ctx);
+  });
+
+  // Time pagination
+  bot.callbackQuery(/^book_time_page_(\d+)$/, async (ctx) => {
+    await ctx.answerCallbackQuery().catch(() => {});
+    ctx.session.booking.timePage = parseInt(ctx.match[1], 10);
+    await showTimesMenu(ctx);
+  });
+  
+  // Ignore button
+  bot.callbackQuery('ignore', async (ctx) => {
+    await ctx.answerCallbackQuery().catch(() => {});
   });
 
   // 4. Select Time
@@ -151,16 +164,35 @@ async function showTimesMenu(ctx) {
   const dateStr = ctx.session.booking.dateStr;
   const docId = ctx.session.booking.docId;
   const slotsMap = ctx.session.booking.slotsMap;
+  const page = ctx.session.booking.timePage || 0;
+  const PAGE_SIZE = 12;
 
   const daySlots = (slotsMap[dateStr] || []).filter(s => docId === 'any' || s.availableDentists.includes(docId));
+  const totalPages = Math.ceil(daySlots.length / PAGE_SIZE);
+  const paginatedSlots = daySlots.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
   const kb = new InlineKeyboard();
-  daySlots.forEach(s => {
+  paginatedSlots.forEach(s => {
     kb.text(s.time, `book_time_${s.time}`);
     if (kb.inline_keyboard[kb.inline_keyboard.length - 1].length >= 3) {
       kb.row();
     }
   });
+
+  if (kb.inline_keyboard.length > 0 && kb.inline_keyboard[kb.inline_keyboard.length - 1].length > 0) {
+    kb.row();
+  }
+
+  if (totalPages > 1) {
+    if (page > 0) {
+      kb.text('⬅️', `book_time_page_${page - 1}`);
+    }
+    kb.text(`${page + 1} / ${totalPages}`, 'ignore');
+    if (page < totalPages - 1) {
+      kb.text('➡️', `book_time_page_${page + 1}`);
+    }
+    kb.row();
+  }
 
   kb.row()
     .text(ctx.t('booking.back'), 'book_back_to_dates')
