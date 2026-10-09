@@ -18,7 +18,7 @@ export async function POST(req, { params }) {
         .from('bot_clinics')
         .select(`
           *,
-          clinics:clinic_id (id, name)
+          clinics:clinic_id (id, name, timezone, working_hours, currency)
         `)
         .eq('id', botId)
         .single();
@@ -41,7 +41,13 @@ export async function POST(req, { params }) {
       }
       
       // 3. Create bot instance
-      const bot = await createBot(token, botId, botClinic.clinics);
+      const unifiedClinicData = {
+        ...botClinic.clinics,
+        booking_horizon_days: botClinic.booking_horizon_days,
+        min_lead_minutes: botClinic.min_lead_minutes,
+        slot_minutes: botClinic.slot_minutes
+      };
+      const bot = await createBot(token, botId, unifiedClinicData);
       
       botInfo = { bot, secret: botClinic.webhook_secret };
       botsCache.set(botId, botInfo);

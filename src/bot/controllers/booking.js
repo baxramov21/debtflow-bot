@@ -32,44 +32,45 @@ export function setupBookingController(bot) {
 
   // 2. Select Doctor
   bot.callbackQuery(/^book_doc_(.+)$/, async (ctx) => {
+    await ctx.answerCallbackQuery().catch(() => {});
     const docId = ctx.match[1];
     ctx.session.booking = { docId };
     await showDatesMenu(ctx);
-    await ctx.answerCallbackQuery();
   });
 
   // 3. Select Date
   bot.callbackQuery(/^book_date_(.+)$/, async (ctx) => {
+    await ctx.answerCallbackQuery().catch(() => {});
     const dateStr = ctx.match[1];
     ctx.session.booking.dateStr = dateStr;
     await showTimesMenu(ctx);
-    await ctx.answerCallbackQuery();
   });
 
   // 4. Select Time
   bot.callbackQuery(/^book_time_(.+)$/, async (ctx) => {
+    await ctx.answerCallbackQuery().catch(() => {});
     const timeStr = ctx.match[1]; // HH:mm
     ctx.session.booking.timeStr = timeStr;
     await showConfirmMenu(ctx);
-    await ctx.answerCallbackQuery();
   });
 
   // 5. Confirm
   bot.callbackQuery('book_confirm', async (ctx) => {
+    await ctx.answerCallbackQuery().catch(() => {});
     await handleBookingConfirm(ctx);
   });
 
   // Cancel / Back
   bot.callbackQuery('book_cancel', async (ctx) => {
+    await ctx.answerCallbackQuery().catch(() => {});
     ctx.session.booking = null;
     await ctx.deleteMessage().catch(() => {});
     await showMainMenu(ctx);
-    await ctx.answerCallbackQuery();
   });
   
   bot.callbackQuery('book_back_to_dates', async (ctx) => {
+    await ctx.answerCallbackQuery().catch(() => {});
     await showDatesMenu(ctx, true);
-    await ctx.answerCallbackQuery();
   });
 }
 
