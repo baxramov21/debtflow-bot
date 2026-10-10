@@ -27,10 +27,18 @@ export function setupStartController(bot) {
   });
 
   bot.command('start', async (ctx) => {
-    // If the user is fully registered, show main menu
+    // If the user has a bot_users record, verify they also completed registration (have a linked patient)
     if (ctx.dbUser) {
-      await showMainMenu(ctx);
-      return;
+      const { data: links } = await supabaseAdmin
+        .from('bot_patient_links')
+        .select('patient_id')
+        .eq('bot_user_id', ctx.dbUser.id)
+        .limit(1);
+        
+      if (links && links.length > 0) {
+        await showMainMenu(ctx);
+        return;
+      }
     }
 
     // Otherwise, start the onboarding flow by asking for language
