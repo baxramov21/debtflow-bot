@@ -14,6 +14,11 @@ export function setupStartController(bot) {
         .update({ staff_chat_id: String(ctx.chat.id) })
         .eq('id', ctx.botClinicId);
         
+      // Update the in-memory cache for this Vercel instance
+      if (ctx.clinic) {
+        ctx.clinic.staff_chat_id = String(ctx.chat.id);
+      }
+        
       await ctx.reply('✅ This group has been configured to receive new booking notifications!');
     } catch (e) {
       console.error(e);
