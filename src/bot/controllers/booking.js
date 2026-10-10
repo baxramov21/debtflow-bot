@@ -397,7 +397,10 @@ async function handleBookingConfirm(ctx) {
 
     const serviceIdToPass = (!b.serviceId || b.serviceId === 'none') ? null : b.serviceId;
 
-    const { data, error } = await supabaseAdmin.rpc('bot_book_appointment', {
+    let data, error;
+    
+    // Try the new RPC with service_id first
+    const res = await supabaseAdmin.rpc('bot_book_appointment', {
       p_clinic_id: ctx.clinic.id,
       p_patient_id: patientId,
       p_dentist_id: b.assignedDocId,
@@ -406,6 +409,24 @@ async function handleBookingConfirm(ctx) {
       p_notes: notes,
       p_service_id: serviceIdToPass
     });
+
+    data = res.data;
+    error = res.error;
+
+    // If it fails because the migration hasn't been run, fall back to the old signature
+    if (error && error.message && error.message.includes('Could not find function')) {
+      console.warn('New RPC not found, falling back to old signature. Did you forget to run the SQL migration?');
+      const fallbackRes = await supabaseAdmin.rpc('bot_book_appointment', {
+        p_clinic_id: ctx.clinic.id,
+        p_patient_id: patientId,
+        p_dentist_id: b.assignedDocId,
+        p_start_time: b.slotStart,
+        p_end_time: b.slotEnd,
+        p_notes: notes
+      });
+      data = fallbackRes.data;
+      error = fallbackRes.error;
+    }
 
     if (error) throw error;
 
