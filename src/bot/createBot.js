@@ -40,16 +40,24 @@ export async function createBot(token, botClinicId, clinicData) {
 
     // Fetch user from DB if exists
     if (ctx.from) {
-      const { data: user } = await supabaseAdmin
-        .from('bot_users')
-        .select('*')
-        .eq('bot_clinic_id', botClinicId)
-        .eq('telegram_user_id', ctx.from.id)
-        .single();
+      if (ctx.session.dbUser) {
+        ctx.dbUser = ctx.session.dbUser;
+      } else {
+        const { data: user } = await supabaseAdmin
+          .from('bot_users')
+          .select('*')
+          .eq('bot_clinic_id', botClinicId)
+          .eq('telegram_user_id', ctx.from.id)
+          .single();
+        
+        ctx.dbUser = user;
+        if (user) {
+          ctx.session.dbUser = user;
+        }
+      }
       
-      ctx.dbUser = user;
-      if (user && user.language) {
-        ctx.session.language = user.language;
+      if (ctx.dbUser && ctx.dbUser.language) {
+        ctx.session.language = ctx.dbUser.language;
       }
     }
     

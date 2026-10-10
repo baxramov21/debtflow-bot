@@ -118,26 +118,31 @@ export function setupBookingController(bot) {
 }
 
 async function fetchBookingData(ctx) {
-  const { data: dentists } = await supabaseAdmin
-    .from('staff')
-    .select('id, full_name')
-    .eq('clinic_id', ctx.clinic.id)
-    .eq('is_active', true);
-
   const now = new Date();
-  const { data: appointments } = await supabaseAdmin
-    .from('appointments')
-    .select('id, start_time, end_time, dentist_id')
-    .eq('clinic_id', ctx.clinic.id)
-    .neq('status', 'cancelled')
-    .neq('status', 'no_show')
-    .gte('start_time', now.toISOString());
+  
+  const [dentistsRes, appointmentsRes, clinicRes] = await Promise.all([
+    supabaseAdmin
+      .from('staff')
+      .select('id, full_name')
+      .eq('clinic_id', ctx.clinic.id)
+      .eq('is_active', true),
+    supabaseAdmin
+      .from('appointments')
+      .select('id, start_time, end_time, dentist_id')
+      .eq('clinic_id', ctx.clinic.id)
+      .neq('status', 'cancelled')
+      .neq('status', 'no_show')
+      .gte('start_time', now.toISOString()),
+    supabaseAdmin
+      .from('clinics')
+      .select('working_hours, min_lead_minutes, slot_minutes, booking_horizon_days, timezone')
+      .eq('id', ctx.clinic.id)
+      .single()
+  ]);
 
-  const { data: latestClinic } = await supabaseAdmin
-    .from('clinics')
-    .select('working_hours, min_lead_minutes, slot_minutes, booking_horizon_days, timezone')
-    .eq('id', ctx.clinic.id)
-    .single();
+  const dentists = dentistsRes.data;
+  const appointments = appointmentsRes.data;
+  const latestClinic = clinicRes.data;
 
   const updatedClinic = { ...ctx.clinic, ...latestClinic };
 
@@ -156,7 +161,6 @@ async function fetchBookingData(ctx) {
 
 async function showDatesMenu(ctx, isEdit = false) {
   const { slotsMap } = await fetchBookingData(ctx);
-  ctx.session.booking.slotsMap = slotsMap; // Save temporarily in session
 
   const dates = Object.keys(slotsMap).sort();
   const kb = new InlineKeyboard();
@@ -199,7 +203,7 @@ async function showDatesMenu(ctx, isEdit = false) {
 
 async function showTimesMenu(ctx) {
   const dateStr = ctx.session.booking.dateStr;
-  const slotsMap = ctx.session.booking.slotsMap;
+  const { slotsMap } = await fetchBookingData(ctx);
   const page = ctx.session.booking.timePage || 0;
   const PAGE_SIZE = 12;
 
@@ -239,8 +243,9 @@ async function showTimesMenu(ctx) {
 }
 
 async function showDoctorsMenu(ctx) {
-  const { dateStr, timeStr, slotsMap } = ctx.session.booking;
-  const slot = slotsMap[dateStr].find(s => s.time === timeStr);
+  const { dateStr, timeStr } = ctx.session.booking;
+  const { slotsMap } = await fetchBookingData(ctx);
+  const slot = slotsMap[dateStr] ? slotsMap[dateStr].find(s => s.time === timeStr) : null;
   
   if (!slot || !slot.availableDentists || slot.availableDentists.length === 0) {
     await ctx.editMessageText(ctx.t('booking.error'));
@@ -267,9 +272,10 @@ async function showDoctorsMenu(ctx) {
 }
 
 async function showConfirmMenu(ctx) {
-  const { docId, dateStr, timeStr, slotsMap } = ctx.session.booking;
+  const { docId, dateStr, timeStr } = ctx.session.booking;
   
-  const slot = slotsMap[dateStr].find(s => s.time === timeStr);
+  const { slotsMap, appointments } = await fetchBookingData(ctx);
+  const slot = slotsMap[dateStr] ? slotsMap[dateStr].find(s => s.time === timeStr) : null;
   if (!slot) {
     await ctx.editMessageText(ctx.t('booking.error'));
     return;
@@ -279,7 +285,6 @@ async function showConfirmMenu(ctx) {
   ctx.session.booking.slotEnd = slot.end;
   
   if (docId === 'any') {
-    const { appointments } = await fetchBookingData(ctx);
     ctx.session.booking.assignedDocId = assignDentist(slot, appointments);
   } else {
     ctx.session.booking.assignedDocId = docId;

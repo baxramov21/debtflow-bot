@@ -51,6 +51,9 @@ export function setupRegistrationController(bot) {
       
       // Update context cache so subsequent calls this session have it
       ctx.dbUser = botUser;
+      if (ctx.session) {
+        ctx.session.dbUser = botUser;
+      }
 
       // 3. Link if matched
       if (matchedPatients && matchedPatients.length > 0) {

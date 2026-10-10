@@ -25,6 +25,10 @@ export function setupSettingsController(bot) {
           .from('bot_users')
           .update({ language: lang })
           .eq('id', ctx.dbUser.id);
+          
+        if (ctx.session.dbUser) {
+          ctx.session.dbUser.language = lang;
+        }
       }
       
       await ctx.answerCallbackQuery();
