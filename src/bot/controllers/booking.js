@@ -433,8 +433,9 @@ async function handleBookingConfirm(ctx) {
     // Send notification to staff group if configured
     if (ctx.clinic.staff_chat_id) {
       try {
-        const patientName = [ctx.dbUser.first_name, ctx.dbUser.last_name].filter(Boolean).join(' ') || ctx.dbUser.phone_normalized || 'Patient';
-        const serviceText = b.serviceName ? `for ${b.serviceName}` : 'for a consultation';
+        const patientName = [ctx.dbUser.first_name, ctx.dbUser.last_name].filter(Boolean).join(' ') || 'Bemor';
+        const phone = ctx.dbUser.phone_normalized ? `+998 ${ctx.dbUser.phone_normalized}` : '';
+        const serviceText = b.serviceName || 'Konsultatsiya';
         
         let docName = '';
         try {
@@ -445,10 +446,14 @@ async function handleBookingConfirm(ctx) {
           console.warn('Could not fetch dentist name for staff notification', e);
         }
 
-        const docText = docName ? `Dr. ${docName}` : 'the doctor';
-        const msg = `New booking: ${patientName} to ${docText} ${serviceText} on ${b.dateStr} at ${b.timeStr}.`;
+        const msg = `🆕 <b>Yangi qabul</b>\n\n` +
+                    `👤 <b>Bemor:</b> ${patientName} ${phone}\n` +
+                    `👨‍⚕️ <b>Shifokor:</b> ${docName || 'Shifokor'}\n` +
+                    `🦷 <b>Xizmat:</b> ${serviceText}\n` +
+                    `📅 <b>Sana:</b> ${b.dateStr}\n` +
+                    `⏰ <b>Vaqt:</b> ${b.timeStr}`;
         
-        after(() => ctx.api.sendMessage(ctx.clinic.staff_chat_id, msg).catch(() => {}));
+        after(() => ctx.api.sendMessage(ctx.clinic.staff_chat_id, msg, { parse_mode: 'HTML' }).catch(() => {}));
       } catch (e) {
         console.error('Failed to send staff notification', e);
       }
