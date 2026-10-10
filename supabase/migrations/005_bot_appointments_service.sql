@@ -1,3 +1,6 @@
+-- Phase 3: Booking Flow Functions
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS service_id UUID REFERENCES services(id) ON DELETE SET NULL;
+
 CREATE OR REPLACE FUNCTION bot_book_appointment(
   p_clinic_id UUID,
   p_patient_id UUID,
