@@ -1,6 +1,26 @@
 import { Keyboard } from 'grammy';
+import { supabaseAdmin } from '../../lib/supabaseAdmin';
 
 export function setupStartController(bot) {
+  bot.command('setgroup', async (ctx) => {
+    // Only allow this in a group
+    if (ctx.chat.type === 'private') {
+      return ctx.reply('This command can only be used in a group chat.');
+    }
+    
+    try {
+      await supabaseAdmin
+        .from('bot_clinics')
+        .update({ staff_chat_id: String(ctx.chat.id) })
+        .eq('id', ctx.botClinicId);
+        
+      await ctx.reply('✅ This group has been configured to receive new booking notifications!');
+    } catch (e) {
+      console.error(e);
+      await ctx.reply('❌ Failed to configure group.');
+    }
+  });
+
   bot.command('start', async (ctx) => {
     // If the user is fully registered, show main menu
     if (ctx.dbUser) {
