@@ -1,6 +1,39 @@
+import { InlineKeyboard } from 'grammy';
 import { supabaseAdmin } from '../../lib/supabaseAdmin';
 import { normalizeLast9 } from '../../lib/phone';
 import { showMainMenu } from './start';
+
+function getYearKeyboard(startYear) {
+  const keyboard = new InlineKeyboard();
+  for (let i = 0; i < 12; i++) {
+    const y = startYear + i;
+    keyboard.text(String(y), `dob_year_${y}`);
+    if ((i + 1) % 4 === 0) keyboard.row();
+  }
+  keyboard.text('⬅️', `dob_ypage_${startYear - 12}`);
+  keyboard.text('➡️', `dob_ypage_${startYear + 12}`);
+  return keyboard;
+}
+
+function getMonthKeyboard() {
+  const months = ['Yanvar', 'Fevral', 'Mart', 'Aprel', 'May', 'Iyun', 'Iyul', 'Avgust', 'Sentabr', 'Oktabr', 'Noyabr', 'Dekabr'];
+  const keyboard = new InlineKeyboard();
+  months.forEach((m, i) => {
+    keyboard.text(m, `dob_month_${i + 1}`);
+    if ((i + 1) % 3 === 0) keyboard.row();
+  });
+  return keyboard;
+}
+
+function getDayKeyboard(year, month) {
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const keyboard = new InlineKeyboard();
+  for (let i = 1; i <= daysInMonth; i++) {
+    keyboard.text(String(i), `dob_day_${i}`);
+    if (i % 7 === 0) keyboard.row();
+  }
+  return keyboard;
+}
 
 export function setupRegistrationController(bot) {
   bot.on('message:contact', async (ctx, next) => {
@@ -85,56 +118,80 @@ export function setupRegistrationController(bot) {
   bot.on('message:text', async (ctx, next) => {
     if (ctx.session.step === 'awaiting_name') {
       ctx.session.reg_name = ctx.message.text.trim();
-      ctx.session.step = 'awaiting_age';
-      await ctx.reply("Yoshingizni kiriting:\n\nВведите ваш возраст:");
+      ctx.session.step = 'awaiting_dob';
+      ctx.session.reg_dob = { year: null, month: null, day: null };
+      
+      const startYear = 1990;
+      await ctx.reply("Tug'ilgan yilingizni tanlang:\n\nВыберите год рождения:", {
+        reply_markup: getYearKeyboard(startYear)
+      });
       return;
     }
-
-    if (ctx.session.step === 'awaiting_age') {
-      const ageText = ctx.message.text.trim();
-      const age = parseInt(ageText, 10);
-      
-      if (isNaN(age) || age < 1 || age > 120) {
-        await ctx.reply("Iltimos, yoshingizni raqam bilan to'g'ri kiriting:\n\nПожалуйста, введите правильный возраст цифрами:");
-        return;
-      }
-      
-      const birthYear = new Date().getFullYear() - age;
-      const birthDate = `${birthYear}-01-01`;
-
-      try {
-        const { data: newPatient, error: newPatientError } = await supabaseAdmin
-          .from('patients')
-          .insert({
-            clinic_id: ctx.clinic.id,
-            full_name: ctx.session.reg_name,
-            phone: `+998${ctx.session.reg_phone}`,
-            birth_date: birthDate
-          })
-          .select()
-          .single();
-          
-        if (newPatientError) throw newPatientError;
-        
-        await supabaseAdmin
-          .from('bot_patient_links')
-          .insert({
-            bot_user_id: ctx.dbUser.id,
-            patient_id: newPatient.id,
-            clinic_id: ctx.clinic.id,
-            created_via: 'register'
-          });
-
-        ctx.session.step = 'idle';
-        await ctx.reply(ctx.t('registration.success'));
-        await showMainMenu(ctx);
-      } catch (err) {
-        console.error('Registration error (new patient):', err);
-        await ctx.reply(ctx.t('registration.error'));
-      }
-      return;
-    }
-
     return next();
+  });
+
+  bot.callbackQuery(/^dob_ypage_(\d+)$/, async (ctx) => {
+    const startYear = parseInt(ctx.match[1], 10);
+    await ctx.editMessageReplyMarkup({ reply_markup: getYearKeyboard(startYear) });
+  });
+
+  bot.callbackQuery(/^dob_year_(\d+)$/, async (ctx) => {
+    const year = parseInt(ctx.match[1], 10);
+    if (!ctx.session.reg_dob) ctx.session.reg_dob = {};
+    ctx.session.reg_dob.year = year;
+    await ctx.editMessageText(`Sizning tug'ilgan yilingiz: ${year}\nEndi oyni tanlang:\n\nВаш год рождения: ${year}\nТеперь выберите месяц:`, {
+      reply_markup: getMonthKeyboard()
+    });
+  });
+
+  bot.callbackQuery(/^dob_month_(\d+)$/, async (ctx) => {
+    const month = parseInt(ctx.match[1], 10);
+    if (!ctx.session.reg_dob) ctx.session.reg_dob = { year: 2000 };
+    ctx.session.reg_dob.month = month;
+    await ctx.editMessageText(`Sizning tug'ilgan yilingiz va oyingiz: ${ctx.session.reg_dob.year}-${String(month).padStart(2, '0')}\nEndi kunni tanlang:\n\nТеперь выберите день:`, {
+      reply_markup: getDayKeyboard(ctx.session.reg_dob.year, month)
+    });
+  });
+
+  bot.callbackQuery(/^dob_day_(\d+)$/, async (ctx) => {
+    const day = parseInt(ctx.match[1], 10);
+    if (!ctx.session.reg_dob) ctx.session.reg_dob = { year: 2000, month: 1 };
+    ctx.session.reg_dob.day = day;
+    
+    const { year, month } = ctx.session.reg_dob;
+    const birthDate = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    
+    await ctx.editMessageText(`Sizning tug'ilgan sanangiz: ${birthDate}\n\nQayd etilmoqda... / Регистрация...`);
+    
+    try {
+      const { data: newPatient, error: newPatientError } = await supabaseAdmin
+        .from('patients')
+        .insert({
+          clinic_id: ctx.clinic.id,
+          full_name: ctx.session.reg_name,
+          phone: `+998${ctx.session.reg_phone}`,
+          birth_date: birthDate
+        })
+        .select()
+        .single();
+        
+      if (newPatientError) throw newPatientError;
+      
+      await supabaseAdmin
+        .from('bot_patient_links')
+        .insert({
+          bot_user_id: ctx.dbUser.id,
+          patient_id: newPatient.id,
+          clinic_id: ctx.clinic.id,
+          created_via: 'register'
+        });
+
+      ctx.session.step = 'idle';
+      await ctx.reply(ctx.t('registration.success'));
+      await showMainMenu(ctx);
+    } catch (err) {
+      console.error('Registration error (new patient):', err);
+      await ctx.reply(ctx.t('registration.error'));
+    }
   });
 }
