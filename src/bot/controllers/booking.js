@@ -133,11 +133,19 @@ async function fetchBookingData(ctx) {
     .neq('status', 'no_show')
     .gte('start_time', now.toISOString());
 
+  const { data: latestClinic } = await supabaseAdmin
+    .from('clinics')
+    .select('working_hours, min_lead_minutes, slot_minutes, booking_horizon_days, timezone')
+    .eq('id', ctx.clinic.id)
+    .single();
+
+  const updatedClinic = { ...ctx.clinic, ...latestClinic };
+
   return {
     dentists: dentists || [],
     appointments: appointments || [],
     slotsMap: generateSlots({
-      clinic: ctx.clinic,
+      clinic: updatedClinic,
       dentists: dentists || [],
       appointments: appointments || [],
       now,
