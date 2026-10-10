@@ -3,8 +3,8 @@ import { normalizeLast9 } from '../../lib/phone';
 import { showMainMenu } from './start';
 
 export function setupRegistrationController(bot) {
-  bot.on('message:contact', async (ctx) => {
-    if (ctx.session.step !== 'awaiting_contact') return;
+  bot.on('message:contact', async (ctx, next) => {
+    if (ctx.session.step !== 'awaiting_contact') return next();
 
     const contact = ctx.message.contact;
     
@@ -57,7 +57,6 @@ export function setupRegistrationController(bot) {
 
       // 3. Link if matched
       if (matchedPatients && matchedPatients.length > 0) {
-        // Link to the first match (in a real app, maybe handle duplicates if they exist)
         const primaryPatient = matchedPatients[0];
         
         await supabaseAdmin
@@ -68,19 +67,49 @@ export function setupRegistrationController(bot) {
             clinic_id: ctx.clinic.id,
             created_via: 'match'
           }, { onConflict: 'bot_user_id, patient_id' });
+          
+        await ctx.reply(ctx.t('registration.success'), { reply_markup: { remove_keyboard: true } });
+        await showMainMenu(ctx);
       } else {
-        // Option A: If clinic allows self register, we could create a new patient in DentFlow here.
-        // For now, we'll just link them if we do self register, but we don't have a patient ID yet.
-        // We will create the patient in DentFlow database.
-        
-        // Let's check if we should self-register
-        // (assume self_register is true for now)
+        // User not found. Proceed to multi-step manual registration
+        ctx.session.reg_phone = last9;
+        ctx.session.step = 'awaiting_name';
+        await ctx.reply("Iltimos, ism va familiyangizni kiriting:\n\nПожалуйста, введите ваше имя и фамилию:", { reply_markup: { remove_keyboard: true } });
+      }
+    } catch (err) {
+      console.error('Registration match error:', err);
+      await ctx.reply(ctx.t('registration.error'));
+    }
+  });
+
+  bot.on('message:text', async (ctx, next) => {
+    if (ctx.session.step === 'awaiting_name') {
+      ctx.session.reg_name = ctx.message.text.trim();
+      ctx.session.step = 'awaiting_age';
+      await ctx.reply("Yoshingizni kiriting:\n\nВведите ваш возраст:");
+      return;
+    }
+
+    if (ctx.session.step === 'awaiting_age') {
+      const ageText = ctx.message.text.trim();
+      const age = parseInt(ageText, 10);
+      
+      if (isNaN(age) || age < 1 || age > 120) {
+        await ctx.reply("Iltimos, yoshingizni raqam bilan to'g'ri kiriting:\n\nПожалуйста, введите правильный возраст цифрами:");
+        return;
+      }
+      
+      const birthYear = new Date().getFullYear() - age;
+      const birthDate = `${birthYear}-01-01`;
+
+      try {
         const { data: newPatient, error: newPatientError } = await supabaseAdmin
           .from('patients')
           .insert({
             clinic_id: ctx.clinic.id,
-            full_name: [ctx.from.first_name, ctx.from.last_name].filter(Boolean).join(' ') || 'Telegram User',
-            phone: `+998${last9}`
+            full_name: ctx.session.reg_name,
+            phone: `+998${ctx.session.reg_phone}`,
+            birth_date: birthDate
           })
           .select()
           .single();
@@ -90,19 +119,22 @@ export function setupRegistrationController(bot) {
         await supabaseAdmin
           .from('bot_patient_links')
           .insert({
-            bot_user_id: botUser.id,
+            bot_user_id: ctx.dbUser.id,
             patient_id: newPatient.id,
             clinic_id: ctx.clinic.id,
             created_via: 'register'
           });
-      }
 
-      await ctx.reply(ctx.t('registration.success'));
-      await showMainMenu(ctx);
-      
-    } catch (err) {
-      console.error('Registration error:', err);
-      await ctx.reply(ctx.t('registration.error'));
+        ctx.session.step = 'idle';
+        await ctx.reply(ctx.t('registration.success'));
+        await showMainMenu(ctx);
+      } catch (err) {
+        console.error('Registration error (new patient):', err);
+        await ctx.reply(ctx.t('registration.error'));
+      }
+      return;
     }
+
+    return next();
   });
 }
