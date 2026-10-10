@@ -395,16 +395,43 @@ async function handleBookingConfirm(ctx) {
       notes += `\nXizmat: ${b.serviceName}`;
     }
 
+    const serviceIdToPass = (!b.serviceId || b.serviceId === 'none') ? null : b.serviceId;
+
     const { data, error } = await supabaseAdmin.rpc('bot_book_appointment', {
       p_clinic_id: ctx.clinic.id,
       p_patient_id: patientId,
       p_dentist_id: b.assignedDocId,
       p_start_time: b.slotStart,
       p_end_time: b.slotEnd,
-      p_notes: notes
+      p_notes: notes,
+      p_service_id: serviceIdToPass
     });
 
     if (error) throw error;
+
+    // Send notification to staff group if configured
+    if (ctx.clinic.staff_chat_id) {
+      try {
+        const patientName = [ctx.dbUser.first_name, ctx.dbUser.last_name].filter(Boolean).join(' ') || ctx.dbUser.phone_normalized || 'Patient';
+        const serviceText = b.serviceName ? `for ${b.serviceName}` : 'for a consultation';
+        
+        let docName = '';
+        try {
+          const dentists = await getDentists(ctx.clinic.id);
+          const dentist = dentists.find(d => String(d.id) === String(b.assignedDocId));
+          if (dentist) docName = dentist.full_name;
+        } catch (e) {
+          console.warn('Could not fetch dentist name for staff notification', e);
+        }
+
+        const docText = docName ? `Dr. ${docName}` : 'the doctor';
+        const msg = `New booking: ${patientName} to ${docText} ${serviceText} on ${b.dateStr} at ${b.timeStr}.`;
+        
+        after(() => ctx.api.sendMessage(ctx.clinic.staff_chat_id, msg).catch(() => {}));
+      } catch (e) {
+        console.error('Failed to send staff notification', e);
+      }
+    }
 
     // Log after the response is sent (falls back to inline when not in a
     // Next.js request, e.g. local polling script)

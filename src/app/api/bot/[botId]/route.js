@@ -46,7 +46,8 @@ export async function POST(req, { params }) {
         ...botClinic.clinics,
         booking_horizon_days: botClinic.booking_horizon_days,
         min_lead_minutes: botClinic.min_lead_minutes,
-        slot_minutes: botClinic.slot_minutes
+        slot_minutes: botClinic.slot_minutes,
+        staff_chat_id: botClinic.staff_chat_id
       };
 
       // Use cached getMe() result to avoid a Telegram round-trip on cold start.
