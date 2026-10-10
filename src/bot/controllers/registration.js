@@ -22,6 +22,7 @@ function getMonthKeyboard() {
     keyboard.text(m, `dob_month_${i + 1}`);
     if ((i + 1) % 3 === 0) keyboard.row();
   });
+  keyboard.text('⬅️ Ortga / Назад', 'dob_back_to_year');
   return keyboard;
 }
 
@@ -32,6 +33,8 @@ function getDayKeyboard(year, month) {
     keyboard.text(String(i), `dob_day_${i}`);
     if (i % 7 === 0) keyboard.row();
   }
+  if (daysInMonth % 7 !== 0) keyboard.row();
+  keyboard.text('⬅️ Ortga / Назад', 'dob_back_to_month');
   return keyboard;
 }
 
@@ -119,11 +122,10 @@ export function setupRegistrationController(bot) {
     if (ctx.session.step === 'awaiting_name') {
       ctx.session.reg_name = ctx.message.text.trim();
       ctx.session.step = 'awaiting_dob';
-      ctx.session.reg_dob = { year: null, month: null, day: null };
+      ctx.session.reg_dob = { year: null, month: null, day: null, ypage: 1990 };
       
-      const startYear = 1990;
       await ctx.reply("Tug'ilgan yilingizni tanlang:\n\nВыберите год рождения:", {
-        reply_markup: getYearKeyboard(startYear)
+        reply_markup: getYearKeyboard(ctx.session.reg_dob.ypage)
       });
       return;
     }
@@ -132,6 +134,8 @@ export function setupRegistrationController(bot) {
 
   bot.callbackQuery(/^dob_ypage_(\d+)$/, async (ctx) => {
     const startYear = parseInt(ctx.match[1], 10);
+    if (!ctx.session.reg_dob) ctx.session.reg_dob = {};
+    ctx.session.reg_dob.ypage = startYear;
     await ctx.editMessageReplyMarkup({ reply_markup: getYearKeyboard(startYear) });
   });
 
@@ -144,12 +148,26 @@ export function setupRegistrationController(bot) {
     });
   });
 
+  bot.callbackQuery('dob_back_to_year', async (ctx) => {
+    const startYear = ctx.session.reg_dob?.ypage || 1990;
+    await ctx.editMessageText("Tug'ilgan yilingizni tanlang:\n\nВыберите год рождения:", {
+      reply_markup: getYearKeyboard(startYear)
+    });
+  });
+
   bot.callbackQuery(/^dob_month_(\d+)$/, async (ctx) => {
     const month = parseInt(ctx.match[1], 10);
     if (!ctx.session.reg_dob) ctx.session.reg_dob = { year: 2000 };
     ctx.session.reg_dob.month = month;
     await ctx.editMessageText(`Sizning tug'ilgan yilingiz va oyingiz: ${ctx.session.reg_dob.year}-${String(month).padStart(2, '0')}\nEndi kunni tanlang:\n\nТеперь выберите день:`, {
       reply_markup: getDayKeyboard(ctx.session.reg_dob.year, month)
+    });
+  });
+
+  bot.callbackQuery('dob_back_to_month', async (ctx) => {
+    const year = ctx.session.reg_dob?.year || 2000;
+    await ctx.editMessageText(`Sizning tug'ilgan yilingiz: ${year}\nEndi oyni tanlang:\n\nВаш год рождения: ${year}\nТеперь выберите месяц:`, {
+      reply_markup: getMonthKeyboard()
     });
   });
 
