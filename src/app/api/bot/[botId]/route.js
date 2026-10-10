@@ -1,4 +1,5 @@
-import { webhookCallback } from 'grammy';
+import { webhookCallback, Api } from 'grammy';
+import { after } from 'next/server';
 import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
 import { decryptToken } from '../../../../lib/crypto';
 import { createBot } from '../../../../bot/createBot';
@@ -10,9 +11,9 @@ export async function POST(req, { params }) {
   const { botId } = await params;
   
   try {
-    let botInfo = botsCache.get(botId);
+    let botInfoEntry = botsCache.get(botId);
     
-    if (!botInfo) {
+    if (!botInfoEntry) {
       // 1. Fetch clinic bot details
       const { data: botClinic, error } = await supabaseAdmin
         .from('bot_clinics')
@@ -47,22 +48,47 @@ export async function POST(req, { params }) {
         min_lead_minutes: botClinic.min_lead_minutes,
         slot_minutes: botClinic.slot_minutes
       };
-      const bot = await createBot(token, botId, unifiedClinicData);
+
+      // Use cached getMe() result to avoid a Telegram round-trip on cold start.
+      // If missing (older rows), fetch once and persist it for next time.
+      let botInfo = botClinic.bot_info;
+      if (!botInfo) {
+        try {
+          botInfo = await new Api(token).getMe();
+          const info = botInfo;
+          after(async () => {
+            const { error: e } = await supabaseAdmin
+              .from('bot_clinics')
+              .update({ bot_info: info })
+              .eq('id', botId);
+            if (e) console.warn('Could not cache bot_info:', e.message);
+          });
+        } catch (err) {
+          console.error('getMe failed for bot', botId, err);
+          botInfo = undefined;
+        }
+      }
+
+      const bot = await createBot(token, botId, unifiedClinicData, botInfo);
       
-      botInfo = { bot, secret: botClinic.webhook_secret };
-      botsCache.set(botId, botInfo);
+      botInfoEntry = {
+        bot,
+        secret: botClinic.webhook_secret,
+        handler: webhookCallback(bot, 'std/http'),
+      };
+      botsCache.set(botId, botInfoEntry);
     }
     
     // 4. Verify webhook secret if configured
-    if (botInfo.secret) {
+    if (botInfoEntry.secret) {
       const secretHeader = req.headers.get('x-telegram-bot-api-secret-token');
-      if (secretHeader !== botInfo.secret) {
+      if (secretHeader !== botInfoEntry.secret) {
         return new Response('Unauthorized', { status: 401 });
       }
     }
     
     // 5. Pass to grammY
-    return webhookCallback(botInfo.bot, 'std/http')(req);
+    return await botInfoEntry.handler(req);
     
   } catch (err) {
     console.error('Webhook error:', err);

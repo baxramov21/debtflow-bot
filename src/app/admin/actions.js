@@ -80,6 +80,7 @@ export async function connectBot(formData) {
       clinic_id: staff.clinic_id,
       bot_token_enc: botTokenEnc,
       bot_username: botUsername,
+      bot_info: me.result,
       webhook_secret: webhookSecret,
       is_active: true
     }, { onConflict: 'clinic_id' })

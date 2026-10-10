@@ -8,7 +8,8 @@ export function generateSlots({
   dentists, // Array of dentists [{ id, ... }]
   appointments, // Array of existing appointments [{ id, start_time, end_time, dentist_id }]
   now = new Date(),
-  serviceDuration = null
+  serviceDuration = null,
+  onlyDate = null // 'yyyy-MM-dd' → only compute this day (faster)
 }) {
   const tz = clinic.timezone || 'Asia/Tashkent';
   const horizonDays = clinic.booking_horizon_days || 14;
@@ -19,10 +20,27 @@ export function generateSlots({
   const availableSlotsByDate = {};
   const cutoffTime = addMinutes(now, leadMin);
 
+  // Pre-parse appointments once, grouped by dentist
+  const apptsByDentist = new Map();
+  for (const app of appointments) {
+    if (!apptsByDentist.has(app.dentist_id)) apptsByDentist.set(app.dentist_id, []);
+    apptsByDentist.get(app.dentist_id).push({
+      start: new Date(app.start_time).getTime(),
+      end: new Date(app.end_time).getTime()
+    });
+  }
+  const isDentistFree = (dentistId, startMs, endMs) => {
+    const list = apptsByDentist.get(dentistId);
+    if (!list) return true;
+    // Overlap condition: max(start1, start2) < min(end1, end2)
+    return !list.some((a) => startMs < a.end && a.start < endMs);
+  };
+
   for (let i = 0; i < horizonDays; i++) {
     const currentDate = addDays(now, i);
     // get day in tz
     const dateStr = formatInTimeZone(currentDate, tz, 'yyyy-MM-dd');
+    if (onlyDate && dateStr !== onlyDate) continue;
     // We use a fixed 12:00:00 to avoid daylight saving issues when getting the day of the week
     const dummyDate = toDate(`${dateStr}T12:00:00`, { timeZone: tz });
     const dayOfWeek = DAYS_OF_WEEK[dummyDate.getDay()];
@@ -35,6 +53,14 @@ export function generateSlots({
     const dayStart = toDate(`${dateStr}T${hours.start}:00`, { timeZone: tz });
     const dayEnd = toDate(`${dateStr}T${hours.end}:00`, { timeZone: tz });
 
+    // Lunch break (computed once per day)
+    let breakStart = null;
+    let breakEnd = null;
+    if (workingHours.break_start_time && workingHours.break_end_time) {
+      breakStart = toDate(`${dateStr}T${workingHours.break_start_time}:00`, { timeZone: tz });
+      breakEnd = toDate(`${dateStr}T${workingHours.break_end_time}:00`, { timeZone: tz });
+    }
+
     const slotsForDay = [];
     let currentSlot = dayStart;
 
@@ -44,28 +70,14 @@ export function generateSlots({
       const slotEnd = addMinutes(currentSlot, slotMin);
 
       // Check lunch break
-      let isLunch = false;
-      if (workingHours.break_start_time && workingHours.break_end_time) {
-        const breakStart = toDate(`${dateStr}T${workingHours.break_start_time}:00`, { timeZone: tz });
-        const breakEnd = toDate(`${dateStr}T${workingHours.break_end_time}:00`, { timeZone: tz });
-        if (slotStart < breakEnd && breakStart < slotEnd) {
-          isLunch = true;
-        }
-      }
+      const isLunch = breakStart && breakEnd && slotStart < breakEnd && breakStart < slotEnd;
 
       // Check lead time and lunch break
       if (isAfter(slotStart, cutoffTime) && !isLunch) {
+        const startMs = slotStart.getTime();
+        const endMs = slotEnd.getTime();
         // Find which dentists are available
-        const availableDentists = dentists.filter((dentist) => {
-          // A dentist is available if no appointment overlaps
-          return !appointments.some((app) => {
-            if (app.dentist_id !== dentist.id) return false;
-            const appStart = new Date(app.start_time);
-            const appEnd = new Date(app.end_time);
-            // Overlap condition: max(start1, start2) < min(end1, end2)
-            return (slotStart < appEnd) && (appStart < slotEnd);
-          });
-        });
+        const availableDentists = dentists.filter((dentist) => isDentistFree(dentist.id, startMs, endMs));
 
         if (availableDentists.length > 0) {
           slotsForDay.push({

@@ -1,19 +1,64 @@
 import { InlineKeyboard } from 'grammy';
+import { after } from 'next/server';
+import { addDays } from 'date-fns';
+import { toDate } from 'date-fns-tz';
 import { supabaseAdmin } from '../../lib/supabaseAdmin';
 import { generateSlots, assignDentist } from '../../lib/slots';
+import { cached } from '../../lib/memoCache';
 import { showMainMenu } from './start';
+
+// Short TTL: admin edits (working hours, lunch, staff, services) show up within a minute
+const CACHE_TTL_MS = 60 * 1000;
+
+function getServices(clinicId) {
+  return cached(`services:${clinicId}`, CACHE_TTL_MS, async () => {
+    const { data, error } = await supabaseAdmin
+      .from('services')
+      .select('id, name_uz, name_ru, name, price, duration_minutes')
+      .eq('clinic_id', clinicId)
+      .eq('is_active', true);
+    if (error) throw error;
+    return data || [];
+  });
+}
+
+function getDentists(clinicId) {
+  return cached(`staff:${clinicId}`, CACHE_TTL_MS, async () => {
+    const { data, error } = await supabaseAdmin
+      .from('staff')
+      .select('id, full_name')
+      .eq('clinic_id', clinicId)
+      .eq('is_active', true);
+    if (error) throw error;
+    return data || [];
+  });
+}
+
+function getClinicSettings(clinicId) {
+  return cached(`clinic:${clinicId}`, CACHE_TTL_MS, async () => {
+    const { data, error } = await supabaseAdmin
+      .from('clinics')
+      .select('working_hours, min_lead_minutes, slot_minutes, booking_horizon_days, timezone')
+      .eq('id', clinicId)
+      .single();
+    if (error) throw error;
+    return data;
+  });
+}
 
 export function setupBookingController(bot) {
   // 1. Entry point
   bot.hears(['📅 Qabulga yozilish', '📅 Записаться на прием'], async (ctx) => {
     if (!ctx.dbUser) return;
     
-    // Fetch services
-    const { data: services, error } = await supabaseAdmin
-      .from('services')
-      .select('id, name_uz, name_ru, name, price, duration_minutes')
-      .eq('clinic_id', ctx.clinic.id)
-      .eq('is_active', true);
+    // Fetch services (cached)
+    let services = [];
+    let error = null;
+    try {
+      services = await getServices(ctx.clinic.id);
+    } catch (e) {
+      error = e;
+    }
 
     if (error || !services || services.length === 0) {
       // Fallback: Skip services
@@ -39,11 +84,16 @@ export function setupBookingController(bot) {
     await ctx.answerCallbackQuery().catch(() => {});
     const serviceId = ctx.match[1];
     
-    const { data: service } = await supabaseAdmin
-      .from('services')
-      .select('name_uz, name_ru, name, duration_minutes')
-      .eq('id', serviceId)
-      .single();
+    const services = await getServices(ctx.clinic.id).catch(() => []);
+    let service = services.find(s => String(s.id) === serviceId);
+    if (!service) {
+      const { data } = await supabaseAdmin
+        .from('services')
+        .select('name_uz, name_ru, name, duration_minutes')
+        .eq('id', serviceId)
+        .single();
+      service = data;
+    }
       
     if (!service) {
       await ctx.editMessageText(ctx.t('booking.error'));
@@ -117,34 +167,44 @@ export function setupBookingController(bot) {
   });
 }
 
-async function fetchBookingData(ctx) {
+/**
+ * Loads everything needed to compute slots.
+ * Clinic settings & staff come from a 60s cache; appointments are always fresh
+ * but limited to the needed window (a single day if `dateStr` is given).
+ */
+async function fetchBookingData(ctx, dateStr = null) {
   const now = new Date();
-  
-  const [dentistsRes, appointmentsRes, clinicRes] = await Promise.all([
-    supabaseAdmin
-      .from('staff')
-      .select('id, full_name')
-      .eq('clinic_id', ctx.clinic.id)
-      .eq('is_active', true),
+
+  // Window is computed from ctx.clinic (loaded at bot init) so the
+  // appointments query can run in parallel with the cached lookups.
+  const tz = ctx.clinic.timezone || 'Asia/Tashkent';
+  let rangeStart = now;
+  let rangeEnd;
+  if (dateStr) {
+    const dayStart = toDate(`${dateStr}T00:00:00`, { timeZone: tz });
+    rangeEnd = addDays(dayStart, 1);
+    if (dayStart > now) rangeStart = dayStart;
+  } else {
+    // generous upper bound in case booking_horizon_days was increased recently
+    rangeEnd = addDays(now, Math.max(ctx.clinic.booking_horizon_days || 14, 60) + 1);
+  }
+
+  const [dentists, latestClinic, appointmentsRes] = await Promise.all([
+    getDentists(ctx.clinic.id).catch(() => []),
+    getClinicSettings(ctx.clinic.id).catch(() => null),
+    // Includes appointments that started before rangeStart but are still running
     supabaseAdmin
       .from('appointments')
       .select('id, start_time, end_time, dentist_id')
       .eq('clinic_id', ctx.clinic.id)
       .neq('status', 'cancelled')
       .neq('status', 'no_show')
-      .gte('start_time', now.toISOString()),
-    supabaseAdmin
-      .from('clinics')
-      .select('working_hours, min_lead_minutes, slot_minutes, booking_horizon_days, timezone')
-      .eq('id', ctx.clinic.id)
-      .single()
+      .gt('end_time', rangeStart.toISOString())
+      .lt('start_time', rangeEnd.toISOString()),
   ]);
 
-  const dentists = dentistsRes.data;
+  const updatedClinic = { ...ctx.clinic, ...(latestClinic || {}) };
   const appointments = appointmentsRes.data;
-  const latestClinic = clinicRes.data;
-
-  const updatedClinic = { ...ctx.clinic, ...latestClinic };
 
   return {
     dentists: dentists || [],
@@ -154,7 +214,8 @@ async function fetchBookingData(ctx) {
       dentists: dentists || [],
       appointments: appointments || [],
       now,
-      serviceDuration: ctx.session.booking?.serviceDuration
+      serviceDuration: ctx.session.booking?.serviceDuration,
+      onlyDate: dateStr
     })
   };
 }
@@ -203,7 +264,7 @@ async function showDatesMenu(ctx, isEdit = false) {
 
 async function showTimesMenu(ctx) {
   const dateStr = ctx.session.booking.dateStr;
-  const { slotsMap } = await fetchBookingData(ctx);
+  const { slotsMap } = await fetchBookingData(ctx, dateStr);
   const page = ctx.session.booking.timePage || 0;
   const PAGE_SIZE = 12;
 
@@ -244,7 +305,7 @@ async function showTimesMenu(ctx) {
 
 async function showDoctorsMenu(ctx) {
   const { dateStr, timeStr } = ctx.session.booking;
-  const { slotsMap } = await fetchBookingData(ctx);
+  const { slotsMap, dentists: allDentists } = await fetchBookingData(ctx, dateStr);
   const slot = slotsMap[dateStr] ? slotsMap[dateStr].find(s => s.time === timeStr) : null;
   
   if (!slot || !slot.availableDentists || slot.availableDentists.length === 0) {
@@ -252,10 +313,8 @@ async function showDoctorsMenu(ctx) {
     return;
   }
   
-  const { data: dentists } = await supabaseAdmin
-    .from('staff')
-    .select('id, full_name')
-    .in('id', slot.availableDentists);
+  const availableSet = new Set(slot.availableDentists);
+  const dentists = allDentists.filter(d => availableSet.has(d.id));
     
   const kb = new InlineKeyboard();
   kb.text(ctx.t('booking.any_doctor'), `book_doc_any`).row();
@@ -274,7 +333,7 @@ async function showDoctorsMenu(ctx) {
 async function showConfirmMenu(ctx) {
   const { docId, dateStr, timeStr } = ctx.session.booking;
   
-  const { slotsMap, appointments } = await fetchBookingData(ctx);
+  const { slotsMap, appointments, dentists } = await fetchBookingData(ctx, dateStr);
   const slot = slotsMap[dateStr] ? slotsMap[dateStr].find(s => s.time === timeStr) : null;
   if (!slot) {
     await ctx.editMessageText(ctx.t('booking.error'));
@@ -290,12 +349,7 @@ async function showConfirmMenu(ctx) {
     ctx.session.booking.assignedDocId = docId;
   }
 
-  const { data: dentist } = await supabaseAdmin
-    .from('staff')
-    .select('full_name')
-    .eq('id', ctx.session.booking.assignedDocId)
-    .single();
-
+  const dentist = dentists.find(d => String(d.id) === String(ctx.session.booking.assignedDocId));
   const docName = dentist ? dentist.full_name : '';
 
   const kb = new InlineKeyboard()
@@ -318,18 +372,22 @@ async function handleBookingConfirm(ctx) {
     return;
   }
 
-  const { data: links } = await supabaseAdmin
-    .from('bot_patient_links')
-    .select('patient_id')
-    .eq('bot_user_id', ctx.dbUser.id)
-    .limit(1);
+  // patientId is cached in the session after the first lookup
+  let patientId = ctx.session.patientId;
+  if (!patientId) {
+    const { data: links } = await supabaseAdmin
+      .from('bot_patient_links')
+      .select('patient_id')
+      .eq('bot_user_id', ctx.dbUser.id)
+      .limit(1);
 
-  if (!links || links.length === 0) {
-    await ctx.editMessageText(ctx.t('booking.error'));
-    return;
+    if (!links || links.length === 0) {
+      await ctx.editMessageText(ctx.t('booking.error'));
+      return;
+    }
+    patientId = links[0].patient_id;
+    ctx.session.patientId = patientId;
   }
-
-  const patientId = links[0].patient_id;
 
   try {
     let notes = '[Telegram] Bemor telegram bot orqali yozildi';
@@ -348,10 +406,17 @@ async function handleBookingConfirm(ctx) {
 
     if (error) throw error;
 
-    await supabaseAdmin.from('bot_message_log').insert({
+    // Log after the response is sent (falls back to inline when not in a
+    // Next.js request, e.g. local polling script)
+    const logInsert = () => supabaseAdmin.from('bot_message_log').insert({
       appointment_id: data,
       kind: 'booking_confirm'
     });
+    try {
+      after(logInsert);
+    } catch {
+      await logInsert();
+    }
 
     await ctx.editMessageText(ctx.t('booking.success'));
   } catch (err) {

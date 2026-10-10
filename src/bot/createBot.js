@@ -14,13 +14,38 @@ import { setupChartController } from './controllers/chart';
 
 /**
  * Creates and configures a grammY Bot instance for a specific clinic
+ * @param {object} [botInfo] Cached Telegram getMe() result. When provided,
+ *   grammY skips the getMe API call during init (saves a round-trip on cold start).
  */
-export async function createBot(token, botClinicId, clinicData) {
-  const bot = new Bot(token);
+export async function createBot(token, botClinicId, clinicData, botInfo) {
+  const bot = new Bot(token, botInfo ? { botInfo } : undefined);
 
   // Error handling
   bot.catch((err) => {
     console.error(`Error for bot ${botClinicId}:`, err);
+  });
+
+  // Timing + non-blocking callback answers.
+  // answerCallbackQuery is fired immediately but not awaited by handlers;
+  // we await all pending answers at the end so the serverless function
+  // doesn't freeze before they complete.
+  bot.use(async (ctx, next) => {
+    const started = Date.now();
+    const pending = [];
+    if (ctx.callbackQuery) {
+      const original = ctx.answerCallbackQuery.bind(ctx);
+      ctx.answerCallbackQuery = (...args) => {
+        pending.push(original(...args).catch(() => {}));
+        return Promise.resolve(true);
+      };
+    }
+    try {
+      await next();
+    } finally {
+      await Promise.all(pending);
+      const kind = ctx.callbackQuery?.data || ctx.message?.text || Object.keys(ctx.update)[1];
+      console.log(`[bot ${botClinicId}] ${String(kind).slice(0, 40)} handled in ${Date.now() - started}ms`);
+    }
   });
 
   // Session middleware
