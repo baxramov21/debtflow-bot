@@ -182,17 +182,13 @@ export function setupRegistrationController(bot) {
     await ctx.editMessageText(`Sizning tug'ilgan sanangiz: ${birthDate}\n\nQayd etilmoqda... / Регистрация...`);
     
     try {
-      const nameParts = ctx.session.reg_name.split(' ');
-      const firstName = nameParts[0];
-      const lastName = nameParts.slice(1).join(' ');
-
       const { data: newPatient, error: newPatientError } = await supabaseAdmin
         .from('patients')
         .insert({
           clinic_id: ctx.clinic.id,
-          first_name: firstName,
-          last_name: lastName || null,
+          full_name: ctx.session.reg_name,
           phone: `+998${ctx.session.reg_phone}`,
+          date_of_birth: birthDate,
           birth_date: birthDate
         })
         .select()

@@ -433,8 +433,21 @@ async function handleBookingConfirm(ctx) {
     // Send notification to staff group if configured
     if (ctx.clinic.staff_chat_id) {
       try {
-        const patientName = [ctx.dbUser.first_name, ctx.dbUser.last_name].filter(Boolean).join(' ') || 'Bemor';
-        const phone = ctx.dbUser.phone_normalized ? `+998 ${ctx.dbUser.phone_normalized}` : '';
+        let pName = 'Bemor';
+        let pDob = '';
+        let pPhone = '';
+        try {
+           const { data: pData } = await supabaseAdmin.from('patients').select('full_name, date_of_birth, birth_date, phone').eq('id', patientId).single();
+           if (pData) {
+              pName = pData.full_name || 'Bemor';
+              pDob = pData.date_of_birth || pData.birth_date || '';
+              pPhone = pData.phone || '';
+           }
+        } catch(e) {
+           console.warn('Could not fetch patient details for staff notification', e);
+        }
+
+        const tgUser = ctx.from?.username ? `@${ctx.from.username}` : '';
         const serviceText = b.serviceName || 'Konsultatsiya';
         
         let docName = '';
@@ -447,7 +460,10 @@ async function handleBookingConfirm(ctx) {
         }
 
         const msg = `🆕 <b>Yangi qabul</b>\n\n` +
-                    `👤 <b>Bemor:</b> ${patientName} ${phone}\n` +
+                    `👤 <b>Bemor:</b> ${pName}\n` +
+                    (pDob ? `📅 <b>Tug'ilgan sana:</b> ${pDob}\n` : '') +
+                    (pPhone ? `📞 <b>Telefon:</b> ${pPhone}\n` : '') +
+                    (tgUser ? `💬 <b>Telegram:</b> ${tgUser}\n` : '') +
                     `👨‍⚕️ <b>Shifokor:</b> ${docName || 'Shifokor'}\n` +
                     `🦷 <b>Xizmat:</b> ${serviceText}\n` +
                     `📅 <b>Sana:</b> ${b.dateStr}\n` +

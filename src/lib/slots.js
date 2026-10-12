@@ -45,7 +45,12 @@ export function generateSlots({
     const dummyDate = toDate(`${dateStr}T12:00:00`, { timeZone: tz });
     const dayOfWeek = DAYS_OF_WEEK[dummyDate.getDay()];
 
-    const hours = workingHours[dayOfWeek];
+    // Check if the clinic uses standard work times for all days
+    let hours = workingHours[dayOfWeek];
+    if (workingHours.work_start_time && workingHours.work_end_time) {
+      hours = { start: workingHours.work_start_time, end: workingHours.work_end_time };
+    }
+
     if (!hours || !hours.start || !hours.end) {
       continue; // closed this day
     }
